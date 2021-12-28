@@ -1,7 +1,6 @@
 AEGO_nsteps <- function(QMC, fun, svmx, svmy, model, npoints, nsteps, lower, upper, 
                   minimization = TRUE, control = NULL)
 {
-  source("K;/Accelerated_EGO_code/randomization.R")
   history <- c()
   n <- nrow(model@X)
   for (i in 1:nsteps) {
