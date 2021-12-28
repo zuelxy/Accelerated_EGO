@@ -1,7 +1,6 @@
 AEGO_eps <- function(QMC, fun, model, npoints, optimum, eps, lower, upper, 
                   minimization = TRUE, control = NULL)
 {
-  source("K:/Accelerated_EGO_code/randomization.R")
   value <- c()
   i <- 1
   
