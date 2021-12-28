@@ -231,23 +231,3 @@ v <- ggplot(tu, aes(x, y, z = z)) + stat_contour(aes(colour = ..level..)) +
   geom_point(aes(x=-0.02220093, y=-0.008929291),  shape = 22, bg = "orange", size = 3)
 direct.label(v, method="bottom.pieces")
 
-value = 0.08286511
-############################# the influence of pool size ###############################
-pool_rep <- c()
-for (m in c(20, 50, 100, 150)){
-  
-pool <- c()
-QMC <- sobol(m, dim = 2, scrambling = 3)
-QMC <- affine(QMC, lower, upper)
-
-for (k in 1:100) {
-  
-result <- A_EGO(QMC = QMC, fun = ackley, model = fitted_model, npoints = 10, 
-                optimum = M, eps = 10^(-1), lower = lower, upper = upper,
-                control = list(pop.size = 50, max.generations = 60, 
-                               wait.generations = 5, BFGSburnin = 5))
-pool <- c(pool, result$nsteps)
-}
-pool_rep <- cbind(pool_rep, pool)
-}
-
