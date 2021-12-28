@@ -1,3 +1,5 @@
+##############  this file is to plot Figgire 1 to illustrate the process of RQMC
+
 library(randtoolbox)
 
 QMC <- sobol(200, dim = 2, scrambling = 3)
