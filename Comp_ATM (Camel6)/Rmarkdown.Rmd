@@ -1,0 +1,160 @@
+---
+title: "Accelerated_EGO"
+author: "Xiao Yao"
+date: "12/26/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document is a simple example to demonstrate our Acclerated EGO algorithm. This code is to find the global optimum of Camel6 function above. 
+
+### global environment 
+```{r message=FALSE}
+library(DiceKriging)\
+library(DiceOptim)
+library(randtoolbox)
+### mapping [0,1]^d to [lower,upper]
+affine <- function(x, lower, upper){
+  x_affine <- matrix(ncol = ncol(x),nrow = nrow(x))
+  for (i in 1:ncol(x)) {
+    x_affine[,i] <- (upper[i]-lower[i])*x[,i]+lower[i]
+  }
+  return(x_affine)
+}
+### mapping level space (1,2,...n) to [lower,upper]
+experiments <- function(U, lower, upper){
+  U <- (U-0.5)/nrow(U)
+  X <- matrix(ncol = ncol(U),nrow = nrow(U))
+  for (i in 1:ncol(U)) {
+    X[,i] <- (upper[i]-lower[i])*U[,i]+lower[i]
+  }
+  return(X)
+}
+
+### RQMC method
+randomization <- function(QMC, lower = rep(0, ncol(QMC)), upper = rep(1, ncol(QMC)))
+{
+  ######################################################
+  # This function is to randomize the QMC points using analogy modular operation
+  # 'QMC' is a quasi Monte Carlo point pool ,such as Sobol sequence
+  # 'lower' and 'upper' are the boundary of the domain
+  ######################################################
+  n <- nrow(QMC)
+  p <- ncol(QMC)
+  uu <- rep(NA, p)
+  for (i in 1:p) {
+    uu[i] <- runif(1, lower[i], upper[i])
+  }
+  QMC <- sweep(QMC, 2, uu, "+")
+  lowerm <- matrix(rep(lower,rep(n,p)),n,p)
+  upperm <- matrix(rep(upper,rep(n,p)),n,p)
+  right <- QMC - upperm
+  QMC[right>0] <- lowerm[right>0] + right[right>0]
+  left <- lowerm - QMC
+  QMC[left>0] <- upperm[left>0] - left[left>0]
+
+  return(QMC)
+}
+
+### resampling from the RQMC point pool
+resampling <- function(k, RQMC, model, minimization = minimization){
+  EI_value <- apply(RQMC, 1, EI, model, minimization = minimization)
+  weight <- EI_value/sum(EI_value)
+  index <- sample(1:nrow(RQMC), k, prob = weight)
+  add_points <- RQMC[index,]
+  return(add_points)
+}
+
+######### the core codel for the Accelerated EGO algorithm
+# QMC : the candidate pool needed to be randomized
+# fun : the objective function
+# model : he iniital Kriging model
+# npoints : the number of points updating at each stage
+# nsteps : the number of iterations
+# lower,upper : the experimental space
+# minimization : if TRUE, find the global minimum, otherwise the global maximum
+# control : seeting of the optimization of the EI function
+
+AEGO_nsteps <- function(QMC, fun, model, npoints, nsteps, lower, upper, 
+                  minimization = TRUE, control = NULL)
+{
+  history <- c()
+  n <- nrow(model@X)
+  for (i in 1:nsteps) {
+    print(paste("step :", i, "/", nsteps))
+    ### the point with the maximum EI value
+    x_new <- max_EI(model = model, lower = lower, upper = upper, control = control, minimization = minimization)
+    ### the other points by RQMC method
+    if(i==1)
+      x_sampling <- resampling(k = npoints-1, RQMC = QMC, model = model, minimization = minimization)
+    else{
+      RQMC <- randomization(QMC, lower = lower, upper = upper)
+      x_sampling <- resampling(k = npoints-1, RQMC = RQMC, model = model, minimization = minimization)
+    }
+    
+    add <- rbind(x_new$par, x_sampling)
+    ### refit model
+    model <- update(object = model, newX = add, 
+                    newy = as.matrix(apply(add,1,fun)), 
+                    newX.alreadyExist = FALSE, cov.reestim = TRUE, 
+                    kmcontrol = list(control = list(trace = FALSE)))
+    history[i] <- min(model@y)*minimization + max(model@y)*(!minimization)
+    
+  }
+  return(list(par = model@X[(n+1):(n+nsteps*npoints),,drop = FALSE],
+              value = model@y[(n+1):(n+nsteps*npoints),,drop = FALSE], history = history))
+}
+
+```
+
+### Camel6 function
+```{r}
+### the objective function
+camel6c <- function(xx){
+  runsum <- 0
+  ntimes <- length(xx)/2
+  for (ll in 1:ntimes) {
+    x1 <- xx[2 * ll - 1] 
+    x2 <- xx[2 * ll]
+    term1 <- (4 - 2.1 * x1^2 + (x1^4)/3) * x1^2
+    term2 <- x1 * x2
+    term3 <- (-4 + 4 * x2^2) * x2^2
+    runsum <- runsum + term1 + term2 + term3
+  }
+  return(runsum)
+}
+
+### the initial UD design
+UD <- read.table("UD41_8.txt", header = T)
+UD
+
+lower <- c(-2,-1,-2,-1,-2,-1,-2,-1)
+upper <- c(2,1,2,1,2,1,2,1)
+
+### the iniital experimental points and evaluations
+design <- experiments(UD, lower, upper)
+output <- apply(design,1,camel6c)
+
+### the initial model
+set.seed(124)
+fitted_model <- km(design =  design, response = output)
+
+```
+
+### Accelerated EGO for Camel6
+```{r message=FALSE, warning=FALSE}
+set.seed(999)
+QMC <- sobol(750, dim = 8, scrambling = 3)
+QMC <- affine(QMC, lower, upper)
+
+
+result <- AEGO_nsteps(QMC = QMC, fun = camel6c, model = fitted_model, npoints = 5, 
+                      nsteps = 6, lower = lower, upper = upper,
+                      control = list(pop.size=120,max.generations=120, 
+                                     wait.generations=12, BFGSburnin=12))
+result$history
+```
+
